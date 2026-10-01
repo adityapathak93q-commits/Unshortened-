@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unshorten — see where a link really goes</title>
+<meta name="description" content="Trace redirect chains, spot risky links and strip tracking parameters.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eef2f7;--panel:#fff;--ink:#14213d;--mute:#5d6b85;--line:#d5ddea;--ok:#12906a;--redir:#d98b0b;--bad:#cf3f55;--acc:#2b4cf0;--accink:#fff;
+--sans:"Bricolage Grotesque",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+:root:not([data-theme=light]){color-scheme:light dark}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0e1424;--panel:#161e33;--ink:#e8edf8;--mute:#93a0bd;--line:#26314d;--ok:#3ccf9f;--redir:#f0b43c;--bad:#ff6b82;--acc:#7b94ff;--accink:#0e1424}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.5 var(--sans);padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
+main{max-width:860px;margin:0 auto;padding:40px 20px 64px}
+h1{font-size:clamp(34px,7vw,58px);line-height:1.02;letter-spacing:-.03em;font-weight:800;margin:0 0 12px}
+.lead{color:var(--mute);max-width:52ch;margin:0 0 28px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+textarea{width:100%;min-height:96px;resize:vertical;border:0;outline:0;background:transparent;color:var(--ink);font:15px/1.6 var(--mono)}
+.bar{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;border-top:1px solid var(--line);padding-top:12px;margin-top:8px;font-size:14px;color:var(--mute)}
+.bar label{display:flex;align-items:center;gap:6px}
+.bar input[type=number]{width:60px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit}
+button{font:inherit;cursor:pointer}
+.go{margin-left:auto;background:var(--acc);color:var(--accink);border:0;border-radius:9px;padding:10px 22px;font-weight:700}
+.go:disabled{opacity:.6;cursor:wait}
+.ghost{background:none;border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:5px 11px;font-size:13px}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+#err{color:var(--bad);margin:14px 0 0;min-height:1em}
+.tools{display:flex;gap:8px;margin:28px 0 12px;align-items:center}
+.tools h2{font-size:20px;margin:0 auto 0 0}
+.res{margin:0 0 20px}
+.sum{padding:18px 20px;border-bottom:1px solid var(--line);margin:-16px -16px 14px}
+.sum .dom{font-size:clamp(24px,5vw,34px);font-weight:800;letter-spacing:-.02em;word-break:break-all}
+.sum .src{font:13px var(--mono);color:var(--mute);word-break:break-all;margin-top:2px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.chip{font-size:13px;padding:2px 10px;border-radius:99px;border:1px solid var(--line);color:var(--mute)}
+.chip.warn{border-color:var(--redir);color:var(--redir)}.chip.bad{border-color:var(--bad);color:var(--bad)}.chip.ok{border-color:var(--ok);color:var(--ok)}
+ol.route{list-style:none;margin:0;padding:0}
+.hop{position:relative;display:grid;grid-template-columns:28px 1fr;gap:0 12px;padding-bottom:16px}
+.hop:not(:last-child)::before{content:"";position:absolute;left:11px;top:22px;bottom:-2px;width:4px;background:var(--c);border-radius:2px}
+.dot{width:26px;height:26px;border-radius:50%;background:var(--panel);border:4px solid var(--c);margin-top:1px;z-index:1}
+.hop.last .dot{background:var(--c)}
+.s2{--c:var(--ok)}.s3{--c:var(--redir)}.s4,.s0{--c:var(--bad)}
+.meta{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline;font-size:13px;color:var(--mute)}
+.code{font-weight:700;color:var(--c);font-size:15px}
+.url{font:13.5px/1.45 var(--mono);word-break:break-all;margin-top:2px}
+.to{font:12.5px var(--mono);color:var(--mute);word-break:break-all}
+.tag{font-size:12px;padding:0 7px;border-radius:5px;background:var(--bg);border:1px solid var(--line)}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:r .7s linear infinite;vertical-align:-2px;margin-right:8px}
+@keyframes r{to{transform:rotate(360deg)}}
+.hop.new{animation:in .35s ease-out both;animation-delay:calc(var(--i)*90ms)}
+@keyframes in{from{opacity:0;transform:translateY(6px)}}
+@media(prefers-reduced-motion:reduce){.hop.new,.spin{animation:none}}
+.risk{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;align-items:center;margin-top:14px}
+.score{font-size:30px;font-weight:800;letter-spacing:-.02em;color:var(--rc)}.score small{font-size:14px;color:var(--mute);font-weight:500}
+.meter{height:8px;border-radius:99px;background:var(--line);overflow:hidden}.meter i{display:block;height:100%;width:var(--w);background:var(--rc);border-radius:99px;transition:width .6s ease}
+.rl{--rc:var(--ok)}.rm{--rc:var(--redir)}.rh{--rc:var(--bad)}
+.sig{grid-column:1/-1;margin:4px 0 0;padding:0;list-style:none;font-size:14px}
+.sig li{padding:3px 0 3px 18px;position:relative}.sig li::before{content:"";position:absolute;left:2px;top:11px;width:8px;height:8px;border-radius:50%;background:var(--mute)}
+.sig .ok::before{background:var(--ok)}.sig .warn::before{background:var(--redir)}.sig .bad::before{background:var(--bad)}
+.wf{height:4px;border-radius:2px;background:var(--c);opacity:.55;margin-top:5px;width:var(--w);min-width:3px}
+.verdict{margin:-18px -20px 16px;padding:9px 20px;background:var(--rc);color:#fff;font-weight:800;border-radius:13px 13px 0 0}.verdict.rm{color:#1b1200}
+.pg{grid-column:1/-1;display:grid;grid-template-columns:max-content 1fr;gap:2px 14px;font-size:13.5px;margin-top:6px}.pg .k{color:var(--mute)}.pg .v{word-break:break-all}.pg .warn{color:var(--redir)}.pg .bad{color:var(--bad)}
+.risk .chips{grid-column:1/-1}
+.dash{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+.tile{background:var(--panel);border:1px solid var(--line);border-top:4px solid var(--rc);border-radius:10px;padding:10px 14px}
+.tile b{display:block;font-size:28px;color:var(--rc);line-height:1.1}.tile span{font-size:13px;color:var(--mute)}
+.note{font-size:12.5px;color:var(--mute);margin:10px 0 0}
+footer{margin-top:40px;font-size:13px;color:var(--mute)}footer a{color:var(--acc)}
+.hist button{display:block;width:100%;text-align:left;background:none;border:0;padding:6px 0;font:13px var(--mono);color:var(--mute);word-break:break-all}
+</style>
+</head>
+<body>
+<main>
+<h1>Where does this link really go?</h1>
+<p class="lead">Paste short links and follow every redirect — server, meta-refresh and script — without ever visiting the page yourself.</p>
+
+<form class="panel" id="f">
+<textarea id="urls" placeholder="bit.ly/example&#10;one URL per line, up to 20" aria-label="URLs to trace" autofocus></textarea>
+<div class="bar">
+<label>Max hops <input type="number" id="hops" value="15" min="1" max="25"></label>
+<label>Timeout (s) <input type="number" id="tmo" value="10" min="2" max="15"></label>
+<label><input type="checkbox" id="js" checked> Follow script redirects</label>
+<label title="If a shortener shows an ad page that already contains the destination, jump straight to it"><input type="checkbox" id="unw" checked> Skip ad pages</label>
+<label title="Re-trace as mobile and Googlebot to catch cloaking, and inspect the destination page"><input type="checkbox" id="deep" checked> Deep scan</label>
+<label class="ghost" style="cursor:pointer">Import .txt<input type="file" id="imp" accept=".txt,.csv,text/plain" hidden></label>
+<button class="go" id="go" type="submit">Trace links</button>
+</div>
+</form>
+<p id="err" role="alert"></p>
+
+<div id="out" hidden>
+<div class="tools"><h2 id="count"></h2>
+<button class="ghost" id="sh">Copy share link</button><button class="ghost" id="xj">Download JSON</button><button class="ghost" id="xc">Download CSV</button></div>
+<div class="dash" id="dash"></div>
+<div id="list"></div>
+</div>
+
+<details class="panel" id="histbox" style="margin-top:24px" hidden>
+<summary>Recent traces</summary><div class="hist" id="hist"></div>
+<button class="ghost" id="clr" type="button" style="margin-top:8px">Clear history</button>
+</details>
+
+<footer>Links are only traced, never opened. Trace links you are allowed to analyze.<br>
+Original tool by @astacbfw · <a href="https://t.me/ToolsByAsta" rel="noopener">Tools by Asta</a> · <a href="https://t.me/+5KSKziT8millYjVh" rel="noopener">Asta Shop</a></footer>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+let last=[];
+const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
+const host=u=>{try{return new URL(u).hostname}catch{return ""}};
+const reg=h=>h.split(".").slice(-2).join(".");
+
+function insights(r){
+  const c=[];const h=r.hops;
+  c.push([`${r.total_hops} hop${r.total_hops==1?"":"s"} · ${Math.round(r.total_time_ms)} ms`,""]);
+  const uw=r.unwrap;
+  if(uw&&uw.steps.length)c.push([`Ad page skipped (${uw.steps.map(s=>s.method).join(", ")})`,"ok"]);
+  if(uw&&uw.gated)c.push(["Destination withheld by shortener","warn"]);
+  if(r.was_shortener)c.push(["Passed a known shortener","warn"]);
+  const doms=new Set(h.map(x=>reg(host(x.url))).filter(Boolean));
+  if(doms.size>1)c.push([`Crosses ${doms.size} domains`,"warn"]);
+  if(h.some((x,i)=>i&&h[i-1].url.startsWith("https:")&&x.url.startsWith("http:")))c.push(["Downgrades to http","bad"]);
+  if(h.some(x=>/meta|js/.test(x.note)))c.push(["Uses page-level redirects",""]);
+  if(r.loop_detected)c.push(["Redirect loop","bad"]);
+  if(r.truncated)c.push(["Hop limit reached","bad"]);
+  const lh=h[h.length-1];
+  if(lh&&lh.status==null)c.push(["Last hop failed","bad"]);
+  else if(!r.loop_detected&&!r.truncated&&lh&&lh.status<300)c.push(["Reached destination","ok"]);
+  return c;
+}
+
+function card(r){
+  const box=el("section","panel res");
+  const sum=el("div","sum");
+  sum.append(el("div","dom",r.final_domain||"(unknown)"),el("div","src",r.final_url));
+  const chips=el("div","chips");insights(r).forEach(([t,k])=>chips.append(el("span","chip "+k,t)));
+  sum.append(chips);
+  if(r.unwrap&&r.unwrap.gated){sum.append(el("p","note","This shortener keeps the destination on its own server until its captcha or timer steps are completed, so it cannot be read from the page. Only open the original link yourself if you trust it."));
+    r.unwrap.alternatives.forEach(u=>sum.append(el("div","to","Other link on the page: "+u)))}
+  const row=el("div","row");const cp=el("button","ghost","Copy final URL");
+  cp.type="button";cp.onclick=async()=>{try{await navigator.clipboard.writeText(r.final_url);cp.textContent="Copied"}catch{cp.textContent="Copy failed"}setTimeout(()=>cp.textContent="Copy final URL",1500)};
+  row.append(cp);
+  const a=r.analysis;
+  if(a&&a.clean_url!==r.final_url){const cl=el("button","ghost","Copy cleaned URL");cl.type="button";
+    cl.onclick=async()=>{try{await navigator.clipboard.writeText(a.clean_url);cl.textContent="Copied"}catch{cl.textContent="Copy failed"}setTimeout(()=>cl.textContent="Copy cleaned URL",1500)};row.append(cl)}
+  sum.append(row);
+  if(a){const k=a.level[0];const rk=el("div","risk r"+k);rk.style.setProperty("--w",a.score+"%");
+    const sc=el("div","score",a.score);sc.append(el("small",""," / 100 · "+{low:"Low risk",medium:"Review",high:"High risk"}[a.level]));
+    const mt=el("div","meter");mt.append(el("i"));
+    const ul=el("ul","sig");a.signals.forEach(x=>ul.append(el("li",x.level,x.text)));
+    const bad=a.signals.filter(x=>x.level=="bad").length;
+    sum.prepend(el("div","verdict r"+k,{low:"Low risk",medium:"Review before opening",high:"High risk"}[a.level]+(bad?` · ${bad} serious signal${bad>1?"s":""}`:"")));
+    const pg=a.page;const pgEl=el("div","pg");const kv=(n,v,c)=>pgEl.append(el("span","k",n),el("span","v "+(c||""),v));
+    const iv=a.intel;if(iv){
+      if(iv.age_days!=null)kv("Domain age",iv.age_days+" days",iv.age_days<30?"bad":iv.age_days<90?"warn":"");
+      if(iv.tls)kv("TLS",iv.tls.valid?`valid · issued ${iv.tls.age_days}d ago · ${iv.tls.issuer}`:"invalid: "+iv.tls.error,iv.tls.valid?"":"bad");
+      if(iv.gsb)kv("Safe Browsing",iv.gsb.flagged?"flagged: "+iv.gsb.types.join(", "):"clean",iv.gsb.flagged?"bad":"");
+      if(iv.vt)kv("VirusTotal",iv.vt.known?`${iv.vt.malicious} malicious · ${iv.vt.suspicious} suspicious`:"not seen before",iv.vt.malicious?"bad":"")}
+    if(pg&&!pg.error){
+      if(pg.title)kv("Title",pg.title);kv("Content",pg.content_type||"unknown");
+      if(pg.password)kv("Password field","yes","warn");
+      if(pg.external_forms.length)kv("Form posts to",pg.external_forms.join(", "),"bad");
+      if(pg.obfuscation)kv("Obfuscation",pg.obfuscation+" markers","warn");
+      if(pg.iframes)kv("Iframes",pg.iframes);
+      if(pg.download)kv("File download","yes",pg.risky_file?"bad":"warn")}
+    const pf=el("div","chips");(a.profiles||[]).forEach(p=>pf.append(el("span","chip "+(p.differs?"bad":"ok"),`${p.name} → ${p.final_domain||"?"}`)));
+    rk.append(sc,mt,ul,...(pgEl.children.length?[pgEl]:[]),...(pf.children.length?[pf]:[]),el("p","note","Heuristic signals, not a safety verdict. Never enter credentials on a link you did not expect."));sum.append(rk)}
+  box.append(sum);
+  const ol=el("ol","route");const mx=Math.max(...r.hops.map(h=>h.elapsed_ms),1);
+  r.hops.forEach((h,i)=>{
+    const li=el("li",`hop new s${h.status==null?0:Math.floor(h.status/100)}${i==r.hops.length-1?" last":""}`);
+    li.style.setProperty("--i",i);
+    li.append(el("span","dot"));
+    const b=el("div");const m=el("div","meta");
+    m.append(el("span","code",h.status??"ERR"),el("span","",`${h.elapsed_ms} ms`));
+    if(h.server)m.append(el("span","",h.server));
+    if(h.shortener)m.append(el("span","tag","shortener"));
+    if(h.note&&!h.note.startsWith("error"))m.append(el("span","tag",h.note));
+    b.append(m,el("div","url",h.url));
+    if(h.note.startsWith("error"))b.append(el("div","to",h.note));
+    else if(h.redirect_to&&i==r.hops.length-1)b.append(el("div","to","→ "+h.redirect_to));
+    const wf=el("div","wf");wf.style.setProperty("--w",Math.max(2,h.elapsed_ms/mx*100)+"%");b.append(wf);
+    li.append(b);ol.append(li);
+  });
+  box.append(ol);return box;
+}
+
+function show(results){
+  results=[...results].sort((x,y)=>(y.analysis?.score||0)-(x.analysis?.score||0));
+  const c={high:0,medium:0,low:0};results.forEach(r=>c[r.analysis?.level||"low"]++);
+  $("dash").replaceChildren(...[["high","High risk"],["medium","Review"],["low","Low risk"]].map(([k,t])=>{const d=el("div","tile r"+k[0]);d.append(el("b","",c[k]),el("span","",t));return d}));
+  last=results;$("list").replaceChildren(...results.map(card));
+  $("count").textContent=`${results.length} link${results.length==1?"":"s"} traced`;$("out").hidden=false;
+}
+
+function save(urls){
+  try{const h=JSON.parse(localStorage.getItem("hist")||"[]");
+  localStorage.setItem("hist",JSON.stringify([...new Set([...urls,...h])].slice(0,15)));}catch{}
+  loadHist();
+}
+function loadHist(){
+  let h=[];try{h=JSON.parse(localStorage.getItem("hist")||"[]")}catch{}
+  $("histbox").hidden=!h.length;
+  $("hist").replaceChildren(...h.map(u=>{const b=el("button","",u);b.type="button";b.onclick=()=>{$("urls").value=u;$("urls").focus()};return b}));
+}
+$("clr").onclick=()=>{try{localStorage.removeItem("hist")}catch{}loadHist()};
+
+$("f").onsubmit=async e=>{
+  e.preventDefault();$("err").textContent="";
+  const urls=$("urls").value.split("\n").map(s=>s.trim()).filter(s=>s&&!s.startsWith("#"));
+  if(!urls.length){$("err").textContent="Enter at least one URL.";return}
+  const go=$("go");go.disabled=true;go.replaceChildren(el("span","spin"),"Tracing…");
+  try{
+    const res=await fetch("/api/trace",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({urls,max_hops:+$("hops").value,timeout:+$("tmo").value,follow_js:$("js").checked,deep:$("deep").checked,unwrap:$("unw").checked})});
+    const d=await res.json();
+    if(!res.ok)throw new Error(d.error||"Trace failed.");
+    show(d.results);save(urls);
+  }catch(x){$("err").textContent=x.message}
+  finally{go.disabled=false;go.textContent="Trace links"}
+};
+
+function dl(name,type,text){const a=el("a");a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();URL.revokeObjectURL(a.href)}
+$("xj").onclick=()=>dl("redirect-traces.json","application/json",JSON.stringify(last,null,2));
+$("xc").onclick=()=>{
+  const q=v=>`"${String(v??"").replace(/"/g,'""')}"`;
+  const rows=[["input","final_url","final_domain","hops","time_ms","shortener","loop","risk_score","risk_level"].map(q).join(",")];
+  last.forEach(r=>rows.push([r.input,r.final_url,r.final_domain,r.total_hops,r.total_time_ms,r.was_shortener,r.loop_detected,r.analysis?.score,r.analysis?.level].map(q).join(",")));
+  dl("redirect-traces.csv","text/csv",rows.join("\n"));
+};
+$("sh").onclick=async()=>{
+  const u=$("urls").value.trim();const l=location.origin+location.pathname+"#"+btoa(unescape(encodeURIComponent(u)));
+  try{await navigator.clipboard.writeText(l);$("sh").textContent="Link copied"}catch{$("sh").textContent="Copy failed"}
+  setTimeout(()=>$("sh").textContent="Copy share link",1500)};
+$("imp").onchange=async e=>{const f=e.target.files[0];if(f){$("urls").value=($("urls").value+"\n"+await f.text()).trim();e.target.value=""}};
+loadHist();
+if(location.hash.length>1){try{$("urls").value=decodeURIComponent(escape(atob(location.hash.slice(1))));$("f").requestSubmit()}catch{}}
+</script>
+</body>
+</html>

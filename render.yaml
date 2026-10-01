@@ -1,0 +1,4 @@
+      - key: VT_API_KEY
+        sync: false
+      - key: GSB_API_KEY
+        sync: false
